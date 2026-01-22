@@ -93,7 +93,7 @@ const generateAIResponse = async (
   history: Message[]
 ): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const systemPrompt = getSystemPrompt(mode, mood);
     const conversationHistory = history.slice(-6).map(msg => 
