@@ -1,24 +1,38 @@
 
-require('dotenv').config({ path: '../.env' });
-
-const express = require('express');
-const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { saveMessage, getConversationHistory } = require('./database');
-
-// ADD THIS DEBUG
-console.log('🔑 Gemini API Key loaded:', process.env.GEMINI_API_KEY ? 'YES ✅' : 'NO ❌');
-console.log('🔑 Key starts with:', process.env.GEMINI_API_KEY?.substring(0, 15));
+import dotenv from 'dotenv';
+dotenv.config({ path: '../.env' });
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { saveMessage, getConversationHistory, Message } from './database';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Types
+type Mood = 'happy' | 'sad' | 'stressed' | 'excited' | 'neutral';
+type Mode = 'friend' | 'research' | 'code';
+
+interface ChatRequest {
+  message: string;
+  sessionId?: string;
+  mode?: Mode;
+}
+
+interface ChatResponse {
+  response: string;
+  mood: Mood;
+  mode: Mode;
+}
+
 // Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+console.log('🔑 Gemini API Key loaded:', process.env.GEMINI_API_KEY ? 'YES ✅' : 'NO ❌');
 
 // Mood detection
-const detectMood = (text) => {
+const detectMood = (text: string): Mood => {
   const lower = text.toLowerCase();
   if (/(happy|great|awesome|excited|amazing|wonderful)/i.test(lower)) return 'happy';
   if (/(sad|depressed|down|lonely|upset)/i.test(lower)) return 'sad';
@@ -28,7 +42,7 @@ const detectMood = (text) => {
 };
 
 // Context mode detection
-const detectMode = (text, currentMode) => {
+const detectMode = (text: string, currentMode?: Mode): Mode => {
   const lower = text.toLowerCase();
   if (/(code|debug|error|function|component|api|bug|programming)/i.test(lower)) return 'code';
   if (/(research|learn|explain|how does|what is|tell me about|study)/i.test(lower)) return 'research';
@@ -36,8 +50,8 @@ const detectMode = (text, currentMode) => {
 };
 
 // Build system prompt based on mode
-const getSystemPrompt = (mode, mood) => {
-  const prompts = {
+const getSystemPrompt = (mode: Mode, mood: Mood): string => {
+  const prompts: Record<Mode, string> = {
     friend: `You are D.R.O.S.S (Digital Recovery Optimizer for Soulful Systems), a caring AI companion focused on emotional support and daily wellness. 
 
 Your role:
@@ -68,15 +82,19 @@ Your role:
 - Keep explanations clear and actionable`
   };
 
-  return prompts[mode] || prompts.friend;
+  return prompts[mode];
 };
 
 // Generate AI response
-const generateAIResponse = async (message, mood, mode, history) => {
+const generateAIResponse = async (
+  message: string,
+  mood: Mood,
+  mode: Mode,
+  history: Message[]
+): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     
-    // Build conversation context
     const systemPrompt = getSystemPrompt(mode, mood);
     const conversationHistory = history.slice(-6).map(msg => 
       `${msg.role === 'user' ? 'User' : 'D.R.O.S.S'}: ${msg.content}`
@@ -101,23 +119,19 @@ D.R.O.S.S:`;
 };
 
 // Chat endpoint
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', async (req: Request<{}, {}, ChatRequest>, res: Response<ChatResponse>) => {
   try {
     const { message, sessionId = 'default', mode } = req.body;
     
     const detectedMood = detectMood(message);
     const detectedMode = detectMode(message, mode);
     
-    // Save user message
     await saveMessage(sessionId, 'user', message, detectedMood, detectedMode);
     
-    // Get conversation history from database
     const history = await getConversationHistory(sessionId, 10);
     
-    // Generate AI response
     const response = await generateAIResponse(message, detectedMood, detectedMode, history);
     
-    // Save assistant response
     await saveMessage(sessionId, 'assistant', response, detectedMood, detectedMode);
     
     res.json({
@@ -130,15 +144,16 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ 
       response: "Something went wrong. Let's try that again.",
       mood: 'neutral',
-      mode: mode || 'friend'
+      mode: (req.body.mode as Mode) || 'friend'
     });
   }
 });
 
 // Get conversation history endpoint
-app.get('/api/history/:sessionId', async (req, res) => {
+app.get('/api/history/:sessionId', async (req: Request, res: Response) => {
   try {
-    const history = await getConversationHistory(req.params.sessionId);
+    const sessionId = req.params.sessionId as string;
+    const history = await getConversationHistory(sessionId);
     res.json(history);
   } catch (error) {
     console.error('Error fetching history:', error);
@@ -146,7 +161,7 @@ app.get('/api/history/:sessionId', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'D.R.O.S.S is alive!' });
 });
 

@@ -1,5 +1,23 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+import sqlite3 from 'sqlite3';
+import path from 'path';
+
+// Types
+interface Message {
+  id?: number;
+  session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  mood?: string | null;
+  mode?: string | null;
+  timestamp?: string;
+}
+
+interface SessionSummary {
+  session_id: string;
+  started_at: string;
+  last_message_at: string;
+  message_count: number;
+}
 
 // Create database in data folder
 const dbPath = path.join(__dirname, '../data/dross.db');
@@ -7,7 +25,6 @@ const db = new sqlite3.Database(dbPath);
 
 // Initialize tables
 db.serialize(() => {
-  // Conversations table
   db.run(`
     CREATE TABLE IF NOT EXISTS conversations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,7 +37,6 @@ db.serialize(() => {
     )
   `);
 
-  // User profile table
   db.run(`
     CREATE TABLE IF NOT EXISTS user_profile (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +50,13 @@ db.serialize(() => {
 });
 
 // Save message
-const saveMessage = (sessionId, role, content, mood = null, mode = null) => {
+const saveMessage = (
+  sessionId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  mood: string | null = null,
+  mode: string | null = null
+): Promise<number> => {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO conversations (session_id, role, content, mood, mode) VALUES (?, ?, ?, ?, ?)`,
@@ -48,21 +70,24 @@ const saveMessage = (sessionId, role, content, mood = null, mode = null) => {
 };
 
 // Get conversation history
-const getConversationHistory = (sessionId, limit = 20) => {
+const getConversationHistory = (
+  sessionId: string,
+  limit: number = 20
+): Promise<Message[]> => {
   return new Promise((resolve, reject) => {
     db.all(
       `SELECT * FROM conversations WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?`,
       [sessionId, limit],
-      (err, rows) => {
+      (err, rows: Message[]) => {
         if (err) reject(err);
-        else resolve(rows.reverse()); // Chronological order
+        else resolve(rows.reverse());
       }
     );
   });
 };
 
 // Get all sessions
-const getAllSessions = () => {
+const getAllSessions = (): Promise<SessionSummary[]> => {
   return new Promise((resolve, reject) => {
     db.all(
       `SELECT DISTINCT session_id, 
@@ -72,7 +97,7 @@ const getAllSessions = () => {
        FROM conversations 
        GROUP BY session_id 
        ORDER BY last_message_at DESC`,
-      (err, rows) => {
+      (err, rows: SessionSummary[]) => {
         if (err) reject(err);
         else resolve(rows);
       }
@@ -80,9 +105,11 @@ const getAllSessions = () => {
   });
 };
 
-module.exports = {
+export {
   db,
   saveMessage,
   getConversationHistory,
-  getAllSessions
+  getAllSessions,
+  Message,
+  SessionSummary
 };
